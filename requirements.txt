@@ -1,0 +1,6 @@
+streamlit
+folium
+streamlit-folium
+yfinance
+plotly
+seaborn
