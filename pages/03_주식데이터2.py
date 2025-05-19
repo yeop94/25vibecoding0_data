@@ -33,8 +33,8 @@ default_start = today - timedelta(days=365)
 start_date, end_date = st.date_input(
     "조회 기간 선택 (기본: 최근 1년)",
     value=(default_start, today),
-    max_value=today,
-    format="YYYY-MM-DD"
+    max_value=today
+    # format="YYYY-MM-DD" # <- 이 부분을 삭제 또는 주석 처리합니다.
 )
 
 # 날짜 유효성 확인 및 yfinance end 날짜 보정
@@ -52,7 +52,7 @@ else:
         fig = go.Figure()
         fig.add_trace(go.Scatter(x=data.index, y=data["Close"], mode="lines+markers", name="종가"))
         fig.update_layout(
-            title=f"{company_name} 주가 추이 ({start_date} ~ {end_date})",
+            title=f"{company_name} 주가 추이 ({start_date.strftime('%Y-%m-%d')} ~ {end_date.strftime('%Y-%m-%d')})", # 제목에 날짜 포맷 적용
             xaxis_title="날짜",
             yaxis_title="종가 (현지 통화)",
             template="plotly_white",
