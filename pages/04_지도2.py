@@ -170,7 +170,13 @@ with col1:
                 st.session_state.map_center = [37.5665, 126.9780]
                 st.session_state.zoom_start = 6
             st.experimental_rerun()
-
+    if not isinstance(st.session_state.get("map_center"), (list, tuple)) or \
+       len(st.session_state.get("map_center", [])) != 2 or \
+       not all(isinstance(coord, (int, float)) for coord in st.session_state.get("map_center", [])):
+    
+        st.warning(f"유효하지 않은 map_center 값({st.session_state.get('map_center')})이 감지되어 기본값으로 재설정합니다.")
+        st.session_state.map_center = [37.5665, 126.9780]  # 서울 기본 위치
+        st.session_state.zoom_start = 6                   # 기본 줌 레벨
 
     m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.zoom_start)
 
@@ -192,9 +198,18 @@ with col1:
         key="folium_map_gs" # 이전과 다른 키 사용 가능
     )
 
+    # 수정된 코드:
     if map_data:
-        st.session_state.map_center = map_data.get("center", st.session_state.map_center)
-        st.session_state.zoom_start = map_data.get("zoom", st.session_state.zoom_start)
+        new_center_from_map = map_data.get("center")
+        if new_center_from_map is not None: # None이 아닐 때만 업데이트
+            st.session_state.map_center = new_center_from_map
+        # else: new_center_from_map이 None이면 st.session_state.map_center는 이전 값을 유지
+    
+        # zoom 값도 유사하게 처리할 수 있습니다 (선택적)
+        new_zoom_from_map = map_data.get("zoom")
+        if new_zoom_from_map is not None:
+            st.session_state.zoom_start = new_zoom_from_map
+    
         if map_data.get("last_clicked"):
             st.session_state.last_clicked_coord = map_data["last_clicked"]
             st.experimental_rerun()
