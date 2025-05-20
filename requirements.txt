@@ -5,3 +5,5 @@ yfinance
 plotly
 seaborn
 koreanize-matplotlib
+gspread
+google-auth
