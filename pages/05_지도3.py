@@ -715,40 +715,61 @@ with tab2:
                 departure_date = st.date_input("출발 날짜", datetime.now())
                 departure_time_input = st.time_input("출발 시간", datetime.now().time())
         
-        # API 호출 결과 처리 로직
+        
+        # tab2 내 경로 계산 로직 중
         if st.session_state.calculating_route:
             with st.spinner("경로를 계산하는 중입니다..."):
-                # 출발지, 도착지 좌표 찾기
-                origin_loc = next((loc for loc in st.session_state.locations if loc["label"] == st.session_state.route_origin_label), None)
-                dest_loc = next((loc for loc in st.session_state.locations if loc["label"] == st.session_state.route_destination_label), None)
-                
+                # ... origin_loc, dest_loc 찾기 ...
                 if origin_loc and dest_loc:
                     results = {}
-                    
-                    # 이동 수단에 따라 API 호출
+        
+                    # UI에서 선택된 옵션 가져오기
+                    gmaps_alternatives = alternatives # st.checkbox("대체 경로 검색")의 값
+        
+                    gmaps_avoid = []
+                    if "고속도로" in avoid_options: gmaps_avoid.append("highways")
+                    if "통행료" in avoid_options: gmaps_avoid.append("tolls")
+                    if "페리" in avoid_options: gmaps_avoid.append("ferries")
+        
+                    gmaps_departure_time = "now" # 기본값
+                    if departure_time == "직접 지정": # departure_time은 st.radio의 선택값
+                        # departure_date, departure_time_input 사용 (st.date_input, st.time_input)
+                        combined_dt = datetime.combine(departure_date, departure_time_input)
+                        gmaps_departure_time = str(int(combined_dt.timestamp()))
+        
+                    gmaps_traffic_model = "best_guess" # 기본값
+                    if traffic_model == "낙관적 예측": # traffic_model은 st.selectbox의 값
+                        gmaps_traffic_model = "optimistic"
+                    elif traffic_model == "비관적 예측":
+                        gmaps_traffic_model = "pessimistic"
+        
                     if travel_mode in ["자동차 + 도보", "도보만"]:
-                        # 도보 경로 계산
                         walking_result = get_directions(
                             origin_loc["lat"], origin_loc["lon"],
                             dest_loc["lat"], dest_loc["lon"],
-                            mode="walking"
+                            mode="walking",
+                            alternatives_bool=gmaps_alternatives # 도보 경로는 일부 옵션만 유효할 수 있음
                         )
                         results["walking"] = walking_result
-                    
+        
                     if travel_mode in ["자동차 + 도보", "자동차만"]:
-                        # 자동차 경로 계산
                         driving_result = get_directions(
                             origin_loc["lat"], origin_loc["lon"],
                             dest_loc["lat"], dest_loc["lon"],
-                            mode="driving"
+                            mode="driving",
+                            alternatives_bool=gmaps_alternatives,
+                            avoid_list=gmaps_avoid if gmaps_avoid else None,
+                            departure_time_val=gmaps_departure_time,
+                            traffic_model_val=gmaps_traffic_model
                         )
                         results["driving"] = driving_result
-                    
-                    # 통합 지도 URL 생성
+        
+                    # 통합 지도 URL (사용자가 직접 Google Maps에서 확인하는 용도)
                     map_url_combined = f"https://www.google.com/maps/dir/?api=1&origin={origin_loc['lat']},{origin_loc['lon']}&destination={dest_loc['lat']},{dest_loc['lon']}"
                     results["map_url_combined"] = map_url_combined
-                    
+        
                     st.session_state.route_results = results
+                # ... (후략) ...
                 
                 st.session_state.calculating_route = False
                 st.session_state.last_operation = "route_calculation_complete"
