@@ -15,7 +15,7 @@ st.set_page_config(
 GOOGLE_SHEET_NAME_OR_URL = "내 마커 데이터" # 실제 시트 이름/URL로 변경 필요
 WORKSHEET_NAME = "Sheet1"
 
-# --- Google Sheets Helper Functions (이전과 동일) ---
+# --- Google Sheets Helper Functions (이전과 동일, 일부 메시지 수정) ---
 def init_gspread_client():
     try:
         creds_dict = st.secrets["gcp_service_account"]
@@ -24,10 +24,10 @@ def init_gspread_client():
         gc = gspread.authorize(creds)
         return gc
     except KeyError:
-        st.error("Streamlit Secrets에 'gcp_service_account' 정보가 없습니다. .streamlit/secrets.toml 또는 Cloud Secrets 설정을 확인하세요.")
+        st.error("Streamlit Secrets에 'gcp_service_account' 정보가 없습니다. 설정을 확인하세요.")
         return None
     except Exception as e:
-        st.error(f"Google Sheets 인증에 실패했습니다: {e}")
+        st.error(f"Google Sheets 인증 실패: {e}")
         return None
 
 def get_worksheet(gc, sheet_key, worksheet_name_or_index=0):
@@ -53,8 +53,6 @@ def load_locations_from_sheet(worksheet):
                 if lat is None or lon is None: continue
                 locations.append({"label": str(record.get("Label", f"무명 마커 {i+1}")), "lat": float(lat), "lon": float(lon)})
             except ValueError: continue
-        #if records: st.success("Google Sheet에서 데이터를 성공적으로 불러왔습니다.") # 중복 메시지 최소화
-        #else: st.info("Google Sheet에 데이터가 없거나 헤더만 있습니다.")
         return locations
     except Exception as e: st.error(f"Google Sheet 데이터 로딩 중 오류: {e}"); return []
 
@@ -84,7 +82,7 @@ def delete_location_from_sheet(worksheet, location_to_delete):
                     row_to_delete = i + 1; break
             except (ValueError, IndexError): continue
         if row_to_delete != -1: worksheet.delete_rows(row_to_delete); return True
-        else: st.warning(f"Sheet에서 '{location_to_delete['label']}' 삭제 항목 못 찾음."); return False
+        else: st.warning(f"Sheet에서 '{location_to_delete['label']}' 삭제 항목을 찾지 못했습니다."); return False
     except Exception as e: st.error(f"Google Sheet 데이터 삭제 중 오류: {e}"); return False
 
 # --- Streamlit App Title ---
@@ -102,12 +100,10 @@ if "gs_client" not in st.session_state: st.session_state.gs_client = init_gsprea
 if "worksheet" not in st.session_state: st.session_state.worksheet = None
 if "data_loaded_from_sheet" not in st.session_state: st.session_state.data_loaded_from_sheet = False
 
-# 경로 기능 관련 세션 상태
 if "route_origin_label" not in st.session_state: st.session_state.route_origin_label = None
 if "route_destination_label" not in st.session_state: st.session_state.route_destination_label = None
 if "route_results" not in st.session_state: st.session_state.route_results = None
 if "calculating_route" not in st.session_state: st.session_state.calculating_route = False
-
 
 # --- Google Sheets 연결 및 초기 데이터 로드 ---
 if st.session_state.gs_client and st.session_state.worksheet is None:
@@ -116,31 +112,32 @@ if st.session_state.gs_client and st.session_state.worksheet is None:
 if st.session_state.worksheet and not st.session_state.data_loaded_from_sheet:
     with st.spinner("Google Sheets에서 데이터를 불러오는 중..."):
         st.session_state.locations = load_locations_from_sheet(st.session_state.worksheet)
-        st.session_state.data_loaded_from_sheet = True
-        if st.session_state.locations:
+        st.session_state.data_loaded_from_sheet = True # 데이터 로드 완료 플래그
+        if st.session_state.locations: # 첫 로드 시 메시지 한 번만 표시
+            st.success("Google Sheet에서 데이터를 성공적으로 불러왔습니다.")
             last_loc = st.session_state.locations[-1]
             st.session_state.map_center = [last_loc['lat'], last_loc['lon']]
             st.session_state.zoom_start = 10
         else:
+            st.info("Google Sheet에 저장된 데이터가 없습니다.")
             st.session_state.map_center = list(default_map_center)
             st.session_state.zoom_start = default_zoom_start
 
-# --- 레이아웃 설정 ---
-col1, col2 = st.columns([3, 1.2]) # 사이드바 너비 조정
 
-with col1: # 지도 표시 영역
+# --- 레이아웃 설정 ---
+col1, col2 = st.columns([3, 1.2]) 
+
+with col1: 
     st.subheader("🌍 지도")
     
-    # map_center 유효성 검사
     current_map_center = st.session_state.get("map_center", list(default_map_center))
     current_zoom_start = st.session_state.get("zoom_start", default_zoom_start)
     if not (isinstance(current_map_center, (list, tuple)) and len(current_map_center) == 2 and all(isinstance(c, (int, float)) for c in current_map_center)):
         current_map_center = list(default_map_center)
-        st.session_state.map_center = list(default_map_center) # 세션 상태도 복원
+        st.session_state.map_center = list(default_map_center)
 
     m = folium.Map(location=current_map_center, zoom_start=current_zoom_start)
 
-    # 마커 표시 (출발지/도착지 강조)
     for loc_data in st.session_state.locations:
         icon_color, icon_symbol, popup_text = 'blue', 'info-sign', loc_data["label"]
         if st.session_state.route_origin_label == loc_data["label"]:
@@ -150,27 +147,25 @@ with col1: # 지도 표시 영역
         
         folium.Marker(
             [loc_data["lat"], loc_data["lon"]], 
-            tooltip=loc_data["label"],
-            popup=folium.Popup(popup_text, max_width=200),
+            tooltip=loc_data["label"], popup=folium.Popup(popup_text, max_width=200),
             icon=folium.Icon(color=icon_color, icon=icon_symbol)
         ).add_to(m)
 
-    if st.session_state.last_clicked_coord: # 임시 클릭 마커
+    if st.session_state.last_clicked_coord:
         folium.Marker(
             [st.session_state.last_clicked_coord["lat"], st.session_state.last_clicked_coord["lng"]],
             tooltip="선택된 위치 (저장 전)", icon=folium.Icon(color='green', icon='plus')
         ).add_to(m)
 
-    map_interaction_data = st_folium(m, width="100%", height=600, key="map_with_routes")
+    map_interaction_data = st_folium(m, width="100%", height=600, key="map_corrected_routes")
 
-    # 지도 상호작용 결과 처리
     if map_interaction_data:
         new_center = map_interaction_data.get("center")
-        if new_center and isinstance(new_center, (list, tuple)) and len(new_center) == 2:
-            st.session_state.map_center = list(new_center)
-        elif new_center and isinstance(new_center, dict) and "lat" in new_center and "lng" in new_center:
-             st.session_state.map_center = [new_center["lat"], new_center["lng"]]
-
+        if new_center:
+            if isinstance(new_center, dict) and "lat" in new_center and "lng" in new_center:
+                 st.session_state.map_center = [new_center["lat"], new_center["lng"]]
+            elif isinstance(new_center, (list,tuple)) and len(new_center)==2:
+                 st.session_state.map_center = list(new_center)
 
         if map_interaction_data.get("zoom") is not None: st.session_state.zoom_start = map_interaction_data["zoom"]
         
@@ -179,7 +174,7 @@ with col1: # 지도 표시 영역
             st.session_state.last_clicked_coord = clicked
             st.rerun()
 
-with col2: # 정보 입력 및 경로 찾기 영역
+with col2: 
     st.subheader("📍 마커 추가")
     if not st.session_state.worksheet:
         st.error("Google Sheets에 연결되지 않았습니다. 설정을 확인하세요.")
@@ -187,7 +182,7 @@ with col2: # 정보 입력 및 경로 찾기 영역
     if st.session_state.last_clicked_coord:
         lat, lon = st.session_state.last_clicked_coord["lat"], st.session_state.last_clicked_coord["lng"]
         st.info(f"선택 위치: {lat:.5f}, {lon:.5f}")
-        with st.form("label_form_route_page", clear_on_submit=True):
+        with st.form("label_form_corrected_routes", clear_on_submit=True):
             label = st.text_input("장소 이름", value=f"마커 {len(st.session_state.locations) + 1}")
             if st.form_submit_button("✅ 마커 저장"):
                 if st.session_state.worksheet:
@@ -207,9 +202,9 @@ with col2: # 정보 입력 및 경로 찾기 영역
         for i, loc in enumerate(st.session_state.locations):
             c1, c2 = st.columns([0.8, 0.2])
             c1.markdown(f"**{loc['label']}** ({loc['lat']:.4f}, {loc['lon']:.4f})")
-            if c2.button("삭제", key=f"del_{i}_{loc['label']}"):
+            if c2.button("삭제", key=f"del_corrected_{i}_{loc['label']}"):
                 if st.session_state.worksheet and delete_location_from_sheet(st.session_state.worksheet, loc):
-                    deleted_loc_label = st.session_state.locations.pop(i)["label"]
+                    deleted_loc_label = st.session_state.locations.pop(i)["label"] # pop 후 바로 사용
                     st.toast(f"'{deleted_loc_label}' 삭제 완료!", icon="🚮")
                     if st.session_state.locations:
                         st.session_state.map_center = [st.session_state.locations[-1]['lat'], st.session_state.locations[-1]['lon']]
@@ -219,71 +214,72 @@ with col2: # 정보 입력 및 경로 찾기 영역
                     break 
     else: st.info("저장된 위치가 없습니다.")
     
-    # --- 경로 찾기 기능 ---
     st.markdown("---")
     st.subheader("🚗🚶 경로 찾기")
 
-    if not st.session_state.locations or len(st.session_state.locations) < 1: # 경로 찾기는 1개만 있어도 출발지/도착지로 쓸 수 있음 (API가 주소/장소명도 받으므로)
-        st.info("경로를 찾으려면 지도에 마커를 저장하거나, 경로 검색 API가 장소 이름을 직접 이해할 수 있어야 합니다.")
-    
-    # 저장된 마커가 있을 경우에만 선택 옵션 제공
-    marker_labels = [""] + [loc["label"] for loc in st.session_state.locations] # 빈 옵션 추가
+    if not st.session_state.locations:
+        st.info("경로를 찾으려면 먼저 지도에 마커를 1개 이상 저장해주세요.")
+    else:
+        placeholder_option = "--- 선택 ---"
+        marker_labels = [placeholder_option] + [loc["label"] for loc in st.session_state.locations]
 
-    # 이전에 선택한 값이 유효한지 확인하고 인덱스 설정
-    try:
-        origin_idx = marker_labels.index(st.session_state.route_origin_label) if st.session_state.route_origin_label in marker_labels else 0
-    except ValueError: # 이전 선택값이 더 이상 목록에 없을 경우
-        origin_idx = 0
-        st.session_state.route_origin_label = marker_labels[0] if marker_labels else None
+        # 선택된 값 유지 또는 기본값(플레이스홀더)으로 설정
+        origin_current_val = st.session_state.route_origin_label if st.session_state.route_origin_label in marker_labels else placeholder_option
+        dest_current_val = st.session_state.route_destination_label if st.session_state.route_destination_label in marker_labels else placeholder_option
+        
+        # 만약 이전에 선택한 마커가 삭제되어 더 이상 목록에 없다면 플레이스홀더로 초기화
+        if origin_current_val not in marker_labels : origin_current_val = placeholder_option
+        if dest_current_val not in marker_labels : dest_current_val = placeholder_option
 
-    try:
-        dest_idx = marker_labels.index(st.session_state.route_destination_label) if st.session_state.route_destination_label in marker_labels else (1 if len(marker_labels) > 1 else 0)
-    except ValueError:
-        dest_idx = (1 if len(marker_labels) > 1 else 0)
-        st.session_state.route_destination_label = marker_labels[dest_idx] if len(marker_labels) > dest_idx else None
+        selected_origin = st.selectbox("출발지 마커 선택:", options=marker_labels, 
+                                       index=marker_labels.index(origin_current_val), 
+                                       key="route_origin_sb")
+        
+        selected_destination = st.selectbox("도착지 마커 선택:", options=marker_labels, 
+                                            index=marker_labels.index(dest_current_val), 
+                                            key="route_dest_sb")
+
+        # 세션 상태 업데이트 (선택 시 즉시 반영되도록)
+        st.session_state.route_origin_label = selected_origin if selected_origin != placeholder_option else None
+        st.session_state.route_destination_label = selected_destination if selected_destination != placeholder_option else None
 
 
-    # 사용자 입력 필드 추가 (선택 사항)
-    origin_input = st.text_input("출발지 (직접 입력 또는 선택)", value=st.session_state.route_origin_label or "")
-    destination_input = st.text_input("도착지 (직접 입력 또는 선택)", value=st.session_state.route_destination_label or "")
-    
-    col_route_btn1, col_route_btn2 = st.columns(2)
-    with col_route_btn1:
-        if st.button("📍 경로 계산", use_container_width=True):
-            if not origin_input or not destination_input:
-                st.warning("출발지와 도착지를 모두 입력하거나 선택해주세요.")
-            elif origin_input == destination_input:
-                st.warning("출발지와 도착지가 동일합니다.")
-            else:
-                # 선택된 마커의 레이블을 사용하거나, 직접 입력된 텍스트 사용
-                st.session_state.route_origin_label = origin_input
-                st.session_state.route_destination_label = destination_input
-                st.session_state.calculating_route = True
-                st.session_state.route_results = None # 이전 결과 초기화
+        col_route_btn1, col_route_btn2 = st.columns(2)
+        with col_route_btn1:
+            if st.button("📍 경로 계산", use_container_width=True, key="calc_route_btn_sb"):
+                if not st.session_state.route_origin_label or not st.session_state.route_destination_label:
+                    st.warning("출발지와 도착지를 모두 선택해주세요.")
+                elif st.session_state.route_origin_label == st.session_state.route_destination_label:
+                    st.warning("출발지와 도착지가 동일합니다. 다른 지점을 선택해주세요.")
+                else:
+                    st.session_state.calculating_route = True # API 호출 준비 플래그
+                    st.session_state.route_results = None 
+                    st.rerun() 
+        with col_route_btn2:
+            if st.button("🗑️ 경로 해제", key="clear_route_sb", use_container_width=True):
+                st.session_state.route_origin_label = None
+                st.session_state.route_destination_label = None
+                st.session_state.route_results = None
                 st.rerun()
-    with col_route_btn2:
-        if st.button("🗑️ 경로 해제", key="clear_route", use_container_width=True):
-            st.session_state.route_origin_label = None
-            st.session_state.route_destination_label = None
-            st.session_state.route_results = None
-            st.rerun()
 
-    # API 호출 및 결과 처리 로직 (st.session_state.calculating_route 플래그 사용)
-    # 이 부분은 다음 단계에서 API 호출 코드가 생성된 후 채워집니다.
-    # 지금은 이 플래그가 True일 때 API 호출을 준비하는 것으로 가정합니다.
+    # --- API 호출 결과 처리 로직 ---
+    if st.session_state.get("calculating_route"):
+        # 이 블록은 AI 어시스턴트가 다음 턴에 tool_code를 실행하고,
+        # 그 결과를 바탕으로 이 부분을 채워넣도록 Python 코드를 제공할 것입니다.
+        # 지금은 이전 API 호출("서울역" -> "N서울타워")의 결과를 시뮬레이션하여 표시합니다.
+        with st.spinner("경로 결과를 처리 중입니다..."):
+            results = {}
+            # 이전 API 호출 시뮬레이션 결과 (routes=None, additionalNotes만 있음)
+            walking_notes = "도보: Direction search appears to be outside Google Maps current coverage area, fallback to Google Search for this search instead."
+            driving_notes = "자동차: Direction search appears to be outside Google Maps current coverage area, fallback to Google Search for this search instead."
+            
+            results["walking"] = {"error_message": walking_notes}
+            results["driving"] = {"error_message": driving_notes}
+            # results["map_url_combined"] = None # 이 경우 mapUrl도 None이었음
 
-    if st.session_state.calculating_route:
-        with st.spinner("경로를 계산 중입니다..."):
-            # API 호출 코드가 여기에 위치 (다음 응답에서 생성)
-            # st.session_state.route_results = ... (API 결과로 채움)
-            # st.session_state.calculating_route = False
-            # st.rerun() # API 호출 후 결과를 표시하기 위해 rerun
-            # 현재는 API 호출 부분이 없으므로, 이 블록은 다음 단계에서 채워집니다.
-            # 이 예제에서는 아직 실제 API 호출 코드가 없으므로, 이 블록은 실제 동작을 하지 않습니다.
-            # 사용자가 버튼을 누르면 calculating_route가 True가 되고, 다음 rerun에서 이 블록이 실행됩니다.
-            # API 호출 후, 그 결과를 route_results에 저장하고 calculating_route를 False로 바꿔야 합니다.
-            pass
-
+            st.session_state.route_results = results
+            st.session_state.calculating_route = False # 계산 완료
+            st.rerun() # 결과 표시를 위해 rerun
 
     # 경로 결과 표시
     if st.session_state.route_results:
@@ -293,23 +289,29 @@ with col2: # 정보 입력 및 경로 찾기 영역
         walking_info = st.session_state.route_results.get("walking")
         driving_info = st.session_state.route_results.get("driving")
 
-        if isinstance(walking_info, str): # 오류 메시지인 경우
-            st.error(f"🚶 도보 경로: {walking_info}")
-        elif walking_info:
-            st.markdown(f"🚶 **도보 경로:**")
-            st.markdown(f"  - 예상 시간: {walking_info.get('duration', '정보 없음')}")
-            st.markdown(f"  - 거리: {walking_info.get('distance', '정보 없음')}")
-            if walking_info.get('url'): st.markdown(f"  - [Google Maps에서 경로 보기]({walking_info.get('url')})")
+        if walking_info:
+            if walking_info.get("error_message"):
+                st.info(f"🚶 {walking_info['error_message']}")
+            elif walking_info.get("duration"):
+                st.markdown(f"🚶 **도보 경로:**")
+                st.markdown(f"  - 예상 시간: {walking_info.get('duration', '정보 없음')}")
+                st.markdown(f"  - 거리: {walking_info.get('distance', '정보 없음')}")
+                if walking_info.get('url'): st.markdown(f"  - [Google Maps에서 경로 보기]({walking_info.get('url')})")
+            else:
+                st.info("🚶 도보 경로 정보를 가져올 수 없습니다.")
 
-        if isinstance(driving_info, str): # 오류 메시지인 경우
-            st.error(f"🚗 자동차 경로: {driving_info}")
-        elif driving_info:
-            st.markdown(f"🚗 **자동차 경로:**")
-            st.markdown(f"  - 예상 시간: {driving_info.get('duration', '정보 없음')}")
-            st.markdown(f"  - 거리: {driving_info.get('distance', '정보 없음')}")
-            if driving_info.get('url'): st.markdown(f"  - [Google Maps에서 경로 보기]({driving_info.get('url')})")
+
+        if driving_info:
+            if driving_info.get("error_message"):
+                st.info(f"🚗 {driving_info['error_message']}")
+            elif driving_info.get("duration"):
+                st.markdown(f"🚗 **자동차 경로:**")
+                st.markdown(f"  - 예상 시간: {driving_info.get('duration', '정보 없음')}")
+                st.markdown(f"  - 거리: {driving_info.get('distance', '정보 없음')}")
+                if driving_info.get('url'): st.markdown(f"  - [Google Maps에서 경로 보기]({driving_info.get('url')})")
+            else:
+                st.info("🚗 자동차 경로 정보를 가져올 수 없습니다.")
         
-        # 통합 지도 URL이 있다면 표시 (하나의 API 호출에서 대표 URL을 받을 경우)
         # combined_map_url = st.session_state.route_results.get("map_url_combined")
         # if combined_map_url:
         # st.markdown(f"🗺️ [통합 경로 지도 보기 (Google Maps)]({combined_map_url})")
