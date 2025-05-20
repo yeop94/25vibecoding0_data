@@ -504,7 +504,7 @@ with tab1:
                             st.session_state.last_clicked_coord = None
                             st.session_state.last_operation = "marker_added"
                             st.session_state.operation_time = datetime.now()
-                            st.experimental_rerun()
+                            st.rerun()
                 
                 if cancel_btn:
                     st.session_state.last_clicked_coord = None
