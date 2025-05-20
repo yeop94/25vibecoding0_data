@@ -1,3 +1,6 @@
+import streamlit as st
+st.write(st.secrets.get("gcp_service_account"))
+
 import gspread
 from google.oauth2.service_account import Credentials # google-auth의 일부
 
