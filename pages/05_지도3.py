@@ -508,7 +508,7 @@ with tab1:
                 
                 if cancel_btn:
                     st.session_state.last_clicked_coord = None
-                    st.experimental_rerun()
+                    st.rerun()
         else:
             st.info("마커를 추가하려면 지도를 클릭하세요.")
         
@@ -566,14 +566,14 @@ with tab1:
                         st.session_state.zoom_start = 16
                         st.session_state.last_operation = "view_marker"
                         st.session_state.operation_time = datetime.now()
-                        st.experimental_rerun()
+                        st.rerun()
                 
                 with col3:
                     if st.button("🚩", key=f"route_{i}_{loc['label']}"):
                         st.session_state.route_destination_label = loc["label"]
                         st.session_state.last_operation = "set_destination"
                         st.session_state.operation_time = datetime.now()
-                        st.experimental_rerun()
+                        st.rerun()
                 
                 with col4:
                     if st.button("🗑️", key=f"del_{i}_{loc['label']}"):
@@ -590,7 +590,7 @@ with tab1:
                             st.toast(f"'{deleted_label}' 삭제 완료!", icon="🚮")
                             st.session_state.last_operation = "marker_deleted"
                             st.session_state.operation_time = datetime.now()
-                            st.experimental_rerun()
+                            st.rerun()
                 
                 # 마커 간 구분선
                 st.markdown("---")
@@ -612,7 +612,7 @@ with tab1:
                         st.success("모든 마커가 삭제되었습니다.")
                         st.session_state.last_operation = "all_markers_deleted"
                         st.session_state.operation_time = datetime.now()
-                        st.experimental_rerun()
+                        st.rerun()
                     except Exception as e:
                         st.error(f"마커 삭제 중 오류 발생: {e}")
 
@@ -669,7 +669,7 @@ with tab2:
                         st.session_state.route_results = None 
                         st.session_state.last_operation = "route_calculation_start"
                         st.session_state.operation_time = datetime.now()
-                        st.experimental_rerun()
+                        st.rerun()
             
             with col_route_btn2:
                 if st.button("🗑️ 경로 해제", key="clear_route_sb", use_container_width=True):
@@ -678,7 +678,7 @@ with tab2:
                     st.session_state.route_results = None
                     st.session_state.last_operation = "route_cleared"
                     st.session_state.operation_time = datetime.now()
-                    st.experimental_rerun()
+                    st.rerun()
         
         with col2:
             st.markdown("#### 경로 옵션")
@@ -753,7 +753,7 @@ with tab2:
                 st.session_state.calculating_route = False
                 st.session_state.last_operation = "route_calculation_complete"
                 st.session_state.operation_time = datetime.now()
-                st.experimental_rerun()
+                st.rerun()
         
         # 경로 결과 표시
         if st.session_state.route_results:
