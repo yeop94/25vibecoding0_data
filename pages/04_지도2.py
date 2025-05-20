@@ -4,6 +4,7 @@ from streamlit_folium import st_folium
 import gspread
 from google.oauth2.service_account import Credentials # google-auth의 일부
 
+
 # -----------------------------------------------------------------------------
 # 페이지 설정 - 반드시 Streamlit 명령어 중 가장 먼저 실행되어야 합니다!
 # -----------------------------------------------------------------------------
@@ -17,6 +18,10 @@ st.set_page_config(
     page_icon="🗺️"
 )
 # -----------------------------------------------------------------------------
+
+import streamlit as st
+st.write("Secrets gcp_service_account 내용:", st.secrets.get("gcp_service_account"))
+# ... 나머지 import 및 코드 ...
 
 # --- Google Sheets 관련 설정 ---
 # 사용자는 이 부분을 자신의 Google Sheet 이름 또는 URL로 변경해야 합니다.
