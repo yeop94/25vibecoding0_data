@@ -19,10 +19,6 @@ st.set_page_config(
 )
 # -----------------------------------------------------------------------------
 
-import streamlit as st
-st.write("Secrets gcp_service_account 내용:", st.secrets.get("gcp_service_account"))
-# ... 나머지 import 및 코드 ...
-
 # --- Google Sheets 관련 설정 ---
 # 사용자는 이 부분을 자신의 Google Sheet 이름 또는 URL로 변경해야 합니다.
 GOOGLE_SHEET_NAME_OR_URL = "내 마커 데이터"
