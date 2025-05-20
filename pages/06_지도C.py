@@ -5,7 +5,8 @@ import gspread
 from google.oauth2.service_account import Credentials
 import requests
 import polyline
-from datetime import datetime
+from datetime import datetime, time, date, timedelta
+import time as time_module
 
 # --- Streamlit 페이지 설정 ---
 st.set_page_config(
@@ -135,7 +136,7 @@ def delete_location_from_sheet(worksheet, location_to_delete):
         return False
 
 # --- Google Maps Directions API 함수 ---
-def get_directions(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
+def get_directions(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving", **kwargs):
     if not GOOGLE_MAPS_API_KEY:
         return {"error_message": "Google Maps API 키가 설정되지 않았습니다."}
     base_url = "https://maps.googleapis.com/maps/api/directions/json"
@@ -147,22 +148,42 @@ def get_directions(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
         "language": "ko",
         "region": "kr"
     }
+    
+    # 추가 옵션 파라미터 병합
+    if kwargs:
+        params.update(kwargs)
+        
     try:
         response = requests.get(base_url, params=params)
+        response.raise_for_status()  # HTTP 오류 검출
         data = response.json()
+        
         if data["status"] == "OK" and data["routes"]:
             route = data["routes"][0]
             leg = route["legs"][0]
             route_polyline = route["overview_polyline"]["points"]
             decoded_polyline = polyline.decode(route_polyline)
+            
+            # 올바른 travelmode 파라미터로 URL 생성
+            api_mode = "driving"
+            if mode == "walking":
+                api_mode = "walking"
+            elif mode == "bicycling":
+                api_mode = "bicycling"
+            elif mode == "transit":
+                api_mode = "transit"
+                
             map_url = (
                 f"https://www.google.com/maps/dir/?api=1"
                 f"&origin={origin_lat},{origin_lng}"
-                f"&destination={dest_lat},{dest_lng}&travelmode={mode}"
+                f"&destination={dest_lat},{dest_lng}&travelmode={api_mode}"
             )
+            
             return {
                 "duration": leg["duration"]["text"],
+                "duration_value": leg["duration"]["value"],  # 초 단위
                 "distance": leg["distance"]["text"],
+                "distance_value": leg["distance"]["value"],  # 미터 단위
                 "start_address": leg["start_address"],
                 "end_address": leg["end_address"],
                 "steps": leg["steps"],
@@ -173,9 +194,11 @@ def get_directions(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
             error_msg = data.get("status", "알 수 없는 오류")
             if data.get("error_message"):
                 error_msg = data["error_message"]
-            return {"error_message": f"{error_msg}"}
-    except Exception as e:
+            return {"error_message": f"{error_msg} (모드: {mode})"}
+    except requests.exceptions.RequestException as e:
         return {"error_message": f"API 호출 오류: {str(e)}"}
+    except Exception as e:
+        return {"error_message": f"처리 오류: {str(e)}"}
 
 def get_place_details(place_id):
     if not GOOGLE_MAPS_API_KEY:
@@ -282,6 +305,10 @@ def initialize_session_state():
         st.session_state.last_operation = None
     if "operation_time" not in st.session_state:
         st.session_state.operation_time = datetime.now()
+    if "departure_date" not in st.session_state:
+        st.session_state.departure_date = datetime.now().date()
+    if "departure_time_input" not in st.session_state:
+        st.session_state.departure_time_input = datetime.now().time()
 
 initialize_session_state()
 
@@ -333,16 +360,17 @@ with tab1:
 
         if search_button and search_input:
             st.session_state.search_address = search_input
-            search_result = geocode_address(search_input)
-            if "error_message" not in search_result:
-                st.session_state.search_results = search_result
-                st.session_state.map_center = [search_result["lat"], search_result["lng"]]
-                st.session_state.zoom_start = 15
-                st.session_state.last_clicked_coord = {"lat": search_result["lat"], "lng": search_result["lng"]}
-                st.success(f"검색 결과: {search_result['formatted_address']}")
-            else:
-                st.error(f"검색 오류: {search_result['error_message']}")
-                st.session_state.search_results = None
+            with st.spinner("주소를 검색 중입니다..."):
+                search_result = geocode_address(search_input)
+                if "error_message" not in search_result:
+                    st.session_state.search_results = search_result
+                    st.session_state.map_center = [search_result["lat"], search_result["lng"]]
+                    st.session_state.zoom_start = 15
+                    st.session_state.last_clicked_coord = {"lat": search_result["lat"], "lng": search_result["lng"]}
+                    st.success(f"검색 결과: {search_result['formatted_address']}")
+                else:
+                    st.error(f"검색 오류: {search_result['error_message']}")
+                    st.session_state.search_results = None
 
         # 지도 생성
         current_map_center = st.session_state.map_center
@@ -355,18 +383,22 @@ with tab1:
 
         # 트래픽 정보 레이어 추가 (Google Maps API 키가 있고, 옵션이 켜져있을 때)
         if GOOGLE_MAPS_API_KEY and st.session_state.show_traffic:
-            folium.TileLayer(
-                tiles=f"https://mt0.google.com/vt/lyrs=m@221097413,traffic&hl=ko&x={{x}}&y={{y}}&z={{z}}&style=3&apiKey={GOOGLE_MAPS_API_KEY}",
-                attr="Google Maps Traffic",
-                name="Traffic",
-                overlay=True,
-                control=True
-            ).add_to(m)
+            try:
+                traffic_url = f"https://mt0.google.com/vt/lyrs=m@221097413,traffic&hl=ko&x={{x}}&y={{y}}&z={{z}}&style=3&apiKey={GOOGLE_MAPS_API_KEY}"
+                folium.TileLayer(
+                    tiles=traffic_url,
+                    attr="Google Maps Traffic",
+                    name="Traffic",
+                    overlay=True,
+                    control=True
+                ).add_to(m)
+            except Exception as e:
+                st.error(f"교통 정보 레이어 로딩 오류: {e}")
 
         # 경로 폴리라인 추가
         if st.session_state.route_results:
             walking_info = st.session_state.route_results.get("walking", {})
-            if walking_info and "polyline" in walking_info and walking_info["polyline"]:
+            if walking_info and "polyline" in walking_info and walking_info["polyline"] and "error_message" not in walking_info:
                 folium.PolyLine(
                     locations=walking_info["polyline"],
                     weight=4,
@@ -375,7 +407,7 @@ with tab1:
                     tooltip="도보 경로"
                 ).add_to(m)
             driving_info = st.session_state.route_results.get("driving", {})
-            if driving_info and "polyline" in driving_info and driving_info["polyline"]:
+            if driving_info and "polyline" in driving_info and driving_info["polyline"] and "error_message" not in driving_info:
                 folium.PolyLine(
                     locations=driving_info["polyline"],
                     weight=5,
@@ -609,33 +641,96 @@ with tab2:
                 horizontal=True
             )
             if departure_time == "직접 지정":
-                departure_date = st.date_input("출발 날짜", datetime.now())
-                departure_time_input = st.time_input("출발 시간", datetime.now().time())
+                st.session_state.departure_date = st.date_input("출발 날짜", st.session_state.departure_date)
+                st.session_state.departure_time_input = st.time_input("출발 시간", st.session_state.departure_time_input)
 
         # API 호출 결과 처리 로직
         if st.session_state.calculating_route:
             with st.spinner("경로를 계산하는 중입니다..."):
-                origin_loc = next((loc for loc in st.session_state.locations if loc["label"] == st.session_state.route_origin_label), None)
-                dest_loc = next((loc for loc in st.session_state.locations if loc["label"] == st.session_state.route_destination_label), None)
-                if origin_loc and dest_loc:
+                origin_loc = next((loc for loc in st.session_state.locations 
+                                  if loc["label"] == st.session_state.route_origin_label), None)
+                dest_loc = next((loc for loc in st.session_state.locations 
+                                if loc["label"] == st.session_state.route_destination_label), None)
+                
+                if not origin_loc or not dest_loc:
+                    st.error("출발지 또는 도착지 위치 정보를 찾을 수 없습니다.")
+                    st.session_state.calculating_route = False
+                else:
+                    # 사용자 선택 옵션 처리
+                    api_options = {}
+                    
+                    # 대체 경로 옵션
+                    if alternatives:
+                        api_options["alternatives"] = "true"
+                    
+                    # 교통 모델 매핑
+                    traffic_model_map = {
+                        "최적 예측": "best_guess",
+                        "낙관적 예측": "optimistic",
+                        "비관적 예측": "pessimistic"
+                    }
+                    if travel_mode in ["자동차 + 도보", "자동차만"] and traffic_model in traffic_model_map:
+                        api_options["traffic_model"] = traffic_model_map[traffic_model]
+                        api_options["departure_time"] = "now"
+                    
+                    # 회피 옵션 매핑
+                    avoid_map = {
+                        "고속도로": "highways",
+                        "통행료": "tolls",
+                        "페리": "ferries"
+                    }
+                    avoid_list = [avoid_map[opt] for opt in avoid_options if opt in avoid_map]
+                    if avoid_list:
+                        api_options["avoid"] = "|".join(avoid_list)
+                    
+                    # 출발 시간 설정
+                    if departure_time == "직접 지정":
+                        try:
+                            departure_datetime = datetime.combine(
+                                st.session_state.departure_date, 
+                                st.session_state.departure_time_input
+                            )
+                            # UNIX timestamp 변환 (초 단위)
+                            timestamp = int(time_module.mktime(departure_datetime.timetuple()))
+                            api_options["departure_time"] = timestamp
+                        except Exception as e:
+                            st.warning(f"출발 시간 설정 오류: {e}")
+                            if "traffic_model" in api_options:
+                                api_options["departure_time"] = "now"
+                    elif "traffic_model" in api_options:  # 교통 모델이 지정된 경우 출발 시간 필요
+                        api_options["departure_time"] = "now"
+                        
                     results = {}
+                    
+                    # 모드에 따른 API 호출
                     if travel_mode in ["자동차 + 도보", "도보만"]:
+                        walking_api_options = api_options.copy()
+                        # 도보 모드에서는 traffic_model과 departure_time 제거 (지원되지 않음)
+                        walking_api_options.pop("traffic_model", None)
+                        walking_api_options.pop("departure_time", None)
+                        
                         walking_result = get_directions(
                             origin_loc["lat"], origin_loc["lon"],
                             dest_loc["lat"], dest_loc["lon"],
-                            mode="walking"
+                            mode="walking",
+                            **walking_api_options
                         )
                         results["walking"] = walking_result
+                        
                     if travel_mode in ["자동차 + 도보", "자동차만"]:
                         driving_result = get_directions(
                             origin_loc["lat"], origin_loc["lon"],
                             dest_loc["lat"], dest_loc["lon"],
-                            mode="driving"
+                            mode="driving",
+                            **api_options
                         )
                         results["driving"] = driving_result
+                        
+                    # 지도 URL 생성
                     map_url_combined = f"https://www.google.com/maps/dir/?api=1&origin={origin_loc['lat']},{origin_loc['lon']}&destination={dest_loc['lat']},{dest_loc['lon']}"
                     results["map_url_combined"] = map_url_combined
                     st.session_state.route_results = results
+                    
                 st.session_state.calculating_route = False
                 st.session_state.last_operation = "route_calculation_complete"
                 st.session_state.operation_time = datetime.now()
@@ -654,15 +749,19 @@ with tab2:
             if walking_info:
                 with col_walking:
                     if "error_message" in walking_info:
-                        st.warning(f"🚶 도보 경로: {walking_info['error_message']}")
+                        st.warning(f"🚶 도보 경로 오류: {walking_info['error_message']}")
                     elif walking_info.get("duration"):
                         st.markdown(f"### 🚶 도보 경로")
                         st.markdown(f"**예상 시간:** {walking_info.get('duration', '정보 없음')}")
                         st.markdown(f"**거리:** {walking_info.get('distance', '정보 없음')}")
-                        if "steps" in walking_info:
+                        if "steps" in walking_info and walking_info["steps"]:
                             with st.expander("도보 경로 상세 안내"):
                                 for i, step in enumerate(walking_info["steps"]):
-                                    st.markdown(f"{i+1}. {step.get('html_instructions', '').replace('<b>', '**').replace('</b>', '**')}")
+                                    instruction = step.get('html_instructions', '')
+                                    # HTML 태그 처리
+                                    instruction = instruction.replace('<b>', '**').replace('</b>', '**')
+                                    instruction = instruction.replace('<div style="font-size:0.9em">', '\n').replace('</div>', '')
+                                    st.markdown(f"{i+1}. {instruction}")
                                     st.caption(f"{step.get('distance', {}).get('text', '')} ({step.get('duration', {}).get('text', '')})")
                         if walking_info.get('url'):
                             st.markdown(f"[Google Maps에서 도보 경로 보기]({walking_info.get('url')})")
@@ -671,15 +770,19 @@ with tab2:
             if driving_info:
                 with col_driving:
                     if "error_message" in driving_info:
-                        st.warning(f"🚗 자동차 경로: {driving_info['error_message']}")
+                        st.warning(f"🚗 자동차 경로 오류: {driving_info['error_message']}")
                     elif driving_info.get("duration"):
                         st.markdown(f"### 🚗 자동차 경로")
                         st.markdown(f"**예상 시간:** {driving_info.get('duration', '정보 없음')}")
                         st.markdown(f"**거리:** {driving_info.get('distance', '정보 없음')}")
-                        if "steps" in driving_info:
+                        if "steps" in driving_info and driving_info["steps"]:
                             with st.expander("자동차 경로 상세 안내"):
                                 for i, step in enumerate(driving_info["steps"]):
-                                    st.markdown(f"{i+1}. {step.get('html_instructions', '').replace('<b>', '**').replace('</b>', '**')}")
+                                    instruction = step.get('html_instructions', '')
+                                    # HTML 태그 처리
+                                    instruction = instruction.replace('<b>', '**').replace('</b>', '**')
+                                    instruction = instruction.replace('<div style="font-size:0.9em">', '\n').replace('</div>', '')
+                                    st.markdown(f"{i+1}. {instruction}")
                                     st.caption(f"{step.get('distance', {}).get('text', '')} ({step.get('duration', {}).get('text', '')})")
                         if driving_info.get('url'):
                             st.markdown(f"[Google Maps에서 자동차 경로 보기]({driving_info.get('url')})")
