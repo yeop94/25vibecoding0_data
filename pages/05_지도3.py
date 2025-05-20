@@ -137,20 +137,33 @@ if "zoom_start" not in st.session_state:
     st.session_state.zoom_start = 12
 if "last_clicked_coord" not in st.session_state:
     st.session_state.last_clicked_coord = None
-if "route_origin" not in st.session_state:
-    st.session_state.route_origin = None
-if "route_destination" not in st.session_state:
-    st.session_state.route_destination = None
+if "route_origin_label" not in st.session_state:  # 변수명 수정
+    st.session_state.route_origin_label = None
+if "route_destination_label" not in st.session_state:  # 변수명 수정
+    st.session_state.route_destination_label = None
 if "route_results" not in st.session_state:
     st.session_state.route_results = None
+if "calculating_route" not in st.session_state:
+    st.session_state.calculating_route = False
+if "gs_client" not in st.session_state:
+    st.session_state.gs_client = None
+if "worksheet" not in st.session_state:
+    st.session_state.worksheet = None
+if "data_loaded_from_sheet" not in st.session_state:
+    st.session_state.data_loaded_from_sheet = False
 
 # --- Google Sheets 연결 ---
-gc = init_gspread_client()
-worksheet = get_worksheet(gc, GOOGLE_SHEET_NAME) if gc else None
+if not st.session_state.gs_client:
+    st.session_state.gs_client = init_gspread_client()
+
+if st.session_state.gs_client and not st.session_state.worksheet:
+    st.session_state.worksheet = get_worksheet(st.session_state.gs_client, GOOGLE_SHEET_NAME)
 
 # --- 데이터 로드 ---
-if worksheet and not st.session_state.locations:
-    st.session_state.locations = load_locations_from_sheet(worksheet)
+if st.session_state.worksheet and not st.session_state.data_loaded_from_sheet:
+    with st.spinner("데이터 로드 중..."):
+        st.session_state.locations = load_locations_from_sheet(st.session_state.worksheet)
+        st.session_state.data_loaded_from_sheet = True
 
 # --- 앱 타이틀 ---
 st.title("🗺️ 마커 저장 및 경로 안내")
@@ -164,17 +177,20 @@ with col1:
     
     # --- 경로 폴리라인 추가 ---
     if st.session_state.route_results:
-        if "walking" in st.session_state.route_results and "polyline" in st.session_state.route_results["walking"]:
+        walking_info = st.session_state.route_results.get("walking", {})
+        if walking_info and "polyline" in walking_info and "error_message" not in walking_info:
             folium.PolyLine(
-                locations=st.session_state.route_results["walking"]["polyline"],
+                locations=walking_info["polyline"],
                 weight=4,
                 color='blue',
                 opacity=0.7,
                 tooltip="도보 경로"
             ).add_to(m)
-        if "driving" in st.session_state.route_results and "polyline" in st.session_state.route_results["driving"]:
+            
+        driving_info = st.session_state.route_results.get("driving", {})
+        if driving_info and "polyline" in driving_info and "error_message" not in driving_info:
             folium.PolyLine(
-                locations=st.session_state.route_results["driving"]["polyline"],
+                locations=driving_info["polyline"],
                 weight=5,
                 color='red',
                 opacity=0.7,
@@ -183,17 +199,17 @@ with col1:
     
     # --- 마커 표시 ---
     for loc in st.session_state.locations:
-        icon_color = 'blue'
-        if st.session_state.route_origin == loc["label"]:
-            icon_color = 'green'
-        elif st.session_state.route_destination == loc["label"]:
-            icon_color = 'red'
+        icon_color, icon_symbol = 'blue', 'info-sign'
+        if st.session_state.route_origin_label == loc["label"]:
+            icon_color, icon_symbol = 'green', 'play'
+        elif st.session_state.route_destination_label == loc["label"]:
+            icon_color, icon_symbol = 'red', 'flag'
         
         folium.Marker(
             [loc["lat"], loc["lon"]],
             tooltip=loc["label"],
             popup=loc["label"],
-            icon=folium.Icon(color=icon_color)
+            icon=folium.Icon(color=icon_color, icon=icon_symbol)
         ).add_to(m)
     
     # --- 마지막 클릭 위치 마커 ---
@@ -226,13 +242,13 @@ with col2:
         label = st.text_input("장소 이름", value=f"마커 {len(st.session_state.locations) + 1}")
         
         if st.button("✅ 마커 저장"):
-            if worksheet:
+            if st.session_state.worksheet:
                 new_loc = {"label": label, "lat": lat, "lon": lng}
-                if add_location_to_sheet(worksheet, new_loc):
+                if add_location_to_sheet(st.session_state.worksheet, new_loc):
                     st.session_state.locations.append(new_loc)
                     st.success(f"'{label}' 저장 완료!")
                     st.session_state.last_clicked_coord = None
-                    st.experimental_rerun()
+                    st.rerun()  # experimental_rerun 대신 rerun 사용
     else:
         st.info("마커를 추가하려면 지도를 클릭하세요.")
     
@@ -247,8 +263,8 @@ with col2:
         
         if st.button("🔍 경로 계산"):
             if origin != "선택하세요" and destination != "선택하세요" and origin != destination:
-                st.session_state.route_origin = origin
-                st.session_state.route_destination = destination
+                st.session_state.route_origin_label = origin
+                st.session_state.route_destination_label = destination
                 
                 # 출발지/도착지 좌표 찾기
                 origin_loc = next((loc for loc in st.session_state.locations if loc["label"] == origin), None)
@@ -272,7 +288,7 @@ with col2:
                         )
                     
                     st.session_state.route_results = results
-                    st.experimental_rerun()
+                    st.rerun()  # experimental_rerun 대신 rerun 사용
             else:
                 st.warning("출발지와 도착지를 모두 선택하고 서로 다른 지점이어야 합니다.")
     else:
