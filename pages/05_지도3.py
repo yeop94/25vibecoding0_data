@@ -5,11 +5,15 @@ import gspread
 from google.oauth2.service_account import Credentials
 import requests
 import polyline
-from datetime import datetime
 import math
 
 # --- Streamlit 페이지 설정 ---
 st.set_page_config(layout="wide", page_title="지도 & 경로 안내", page_icon="🗺️")
+
+# --- 기본 지도 좌표 ---
+DEFAULT_LAT = 37.5665
+DEFAULT_LNG = 126.9780
+DEFAULT_ZOOM = 12
 
 # --- API 키 및 설정 ---
 GOOGLE_MAPS_API_KEY = st.secrets.get("google_maps_api_key", "")
@@ -73,7 +77,7 @@ def get_directions(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
     if not GOOGLE_MAPS_API_KEY:
         return {"error_message": "Google Maps API 키가 설정되지 않았습니다."}
     
-    # 두 지점 간 직선 거리 계산 (km)
+    # 직선 거리 계산 (km)
     def haversine(lat1, lon1, lat2, lon2):
         R = 6371  # 지구 반경 (km)
         dLat = math.radians(lat2 - lat1)
@@ -87,7 +91,7 @@ def get_directions(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
     # 직선 거리 계산
     direct_distance = haversine(origin_lat, origin_lng, dest_lat, dest_lng)
     
-    # 도보 모드에서 거리 체크 (100km 이상일 경우 경고)
+    # 도보 모드에서 거리 체크
     if mode == "walking" and direct_distance > 100:
         return {
             "error_message": f"도보 경로 거리 제한 초과 (직선거리: {direct_distance:.1f}km)"
@@ -131,20 +135,23 @@ def get_directions(origin_lat, origin_lng, dest_lat, dest_lng, mode="driving"):
 # --- 세션 상태 초기화 ---
 if "locations" not in st.session_state:
     st.session_state.locations = []
-if "map_center" not in st.session_state:
-    st.session_state.map_center = [37.5665, 126.9780]  # 서울 중심
+
+# 지도 상태 초기화 - 값을 확실하게 리스트로 지정
+if "map_lat" not in st.session_state:
+    st.session_state.map_lat = DEFAULT_LAT
+if "map_lng" not in st.session_state:
+    st.session_state.map_lng = DEFAULT_LNG
 if "zoom_start" not in st.session_state:
-    st.session_state.zoom_start = 12
+    st.session_state.zoom_start = DEFAULT_ZOOM
+
 if "last_clicked_coord" not in st.session_state:
     st.session_state.last_clicked_coord = None
-if "route_origin_label" not in st.session_state:  # 변수명 수정
+if "route_origin_label" not in st.session_state:
     st.session_state.route_origin_label = None
-if "route_destination_label" not in st.session_state:  # 변수명 수정
+if "route_destination_label" not in st.session_state:
     st.session_state.route_destination_label = None
 if "route_results" not in st.session_state:
     st.session_state.route_results = None
-if "calculating_route" not in st.session_state:
-    st.session_state.calculating_route = False
 if "gs_client" not in st.session_state:
     st.session_state.gs_client = None
 if "worksheet" not in st.session_state:
@@ -164,6 +171,11 @@ if st.session_state.worksheet and not st.session_state.data_loaded_from_sheet:
     with st.spinner("데이터 로드 중..."):
         st.session_state.locations = load_locations_from_sheet(st.session_state.worksheet)
         st.session_state.data_loaded_from_sheet = True
+        # 마커가 있으면 첫 번째 마커 위치로 지도 중심 이동
+        if st.session_state.locations:
+            first_marker = st.session_state.locations[0]
+            st.session_state.map_lat = first_marker["lat"]
+            st.session_state.map_lng = first_marker["lon"]
 
 # --- 앱 타이틀 ---
 st.title("🗺️ 마커 저장 및 경로 안내")
@@ -172,8 +184,9 @@ st.title("🗺️ 마커 저장 및 경로 안내")
 col1, col2 = st.columns([3, 1])
 
 with col1:
-    # --- 지도 생성 ---
-    m = folium.Map(location=st.session_state.map_center, zoom_start=st.session_state.zoom_start)
+    # --- 지도 생성 (center 매개변수에 확실한 형식으로 값 전달) ---
+    current_location = [st.session_state.map_lat, st.session_state.map_lng]
+    m = folium.Map(location=current_location, zoom_start=st.session_state.zoom_start)
     
     # --- 경로 폴리라인 추가 ---
     if st.session_state.route_results:
@@ -225,10 +238,21 @@ with col1:
     
     # --- 지도 상호작용 처리 ---
     if map_data:
-        if map_data.get("center"):
-            st.session_state.map_center = map_data["center"]
+        # 중심 좌표 업데이트 (딕셔너리와 리스트 모두 처리)
+        center = map_data.get("center")
+        if center:
+            if isinstance(center, dict) and "lat" in center and "lng" in center:
+                st.session_state.map_lat = center["lat"]
+                st.session_state.map_lng = center["lng"]
+            elif isinstance(center, (list, tuple)) and len(center) == 2:
+                st.session_state.map_lat = center[0]
+                st.session_state.map_lng = center[1]
+        
+        # 줌 레벨 업데이트
         if map_data.get("zoom"):
             st.session_state.zoom_start = map_data["zoom"]
+        
+        # 클릭 좌표 업데이트
         if map_data.get("last_clicked"):
             st.session_state.last_clicked_coord = map_data["last_clicked"]
 
@@ -248,7 +272,7 @@ with col2:
                     st.session_state.locations.append(new_loc)
                     st.success(f"'{label}' 저장 완료!")
                     st.session_state.last_clicked_coord = None
-                    st.rerun()  # experimental_rerun 대신 rerun 사용
+                    st.rerun()
     else:
         st.info("마커를 추가하려면 지도를 클릭하세요.")
     
@@ -288,7 +312,7 @@ with col2:
                         )
                     
                     st.session_state.route_results = results
-                    st.rerun()  # experimental_rerun 대신 rerun 사용
+                    st.rerun()
             else:
                 st.warning("출발지와 도착지를 모두 선택하고 서로 다른 지점이어야 합니다.")
     else:
