@@ -169,7 +169,7 @@ with col1:
             else: # 데이터가 없는 경우 초기 중심으로
                 st.session_state.map_center = [37.5665, 126.9780]
                 st.session_state.zoom_start = 6
-            st.experimental_rerun()
+            st.rerun()
     if not isinstance(st.session_state.get("map_center"), (list, tuple)) or \
        len(st.session_state.get("map_center", [])) != 2 or \
        not all(isinstance(coord, (int, float)) for coord in st.session_state.get("map_center", [])):
@@ -212,7 +212,7 @@ with col1:
     
         if map_data.get("last_clicked"):
             st.session_state.last_clicked_coord = map_data["last_clicked"]
-            st.experimental_rerun()
+            st.rerun()
 
 with col2:
     st.subheader("📍 마커 정보")
@@ -246,7 +246,7 @@ with col2:
                             st.session_state.map_center = [lat, lon]
                             st.session_state.zoom_start = 12
                             st.session_state.last_clicked_coord = None
-                            st.experimental_rerun()
+                            st.rerun()
                         else:
                             st.error("Google Sheet에 저장 실패했습니다.")
     else:
@@ -277,7 +277,7 @@ with col2:
                                 elif st.session_state.locations:
                                     last_loc = st.session_state.locations[-1]
                                     st.session_state.map_center = [last_loc['lat'], last_loc['lon']]
-                                st.experimental_rerun()
+                                st.rerun()
                             else:
                                 st.error(f"Google Sheet에서 '{location_to_delete['label']}' 삭제 실패했습니다.")
     else:
